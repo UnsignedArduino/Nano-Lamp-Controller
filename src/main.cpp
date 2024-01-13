@@ -1,17 +1,31 @@
 #include <Arduino.h>
 #include <Button.h>
 
-const uint8_t BRIGHTNESS_BTN = 2;
-const uint8_t COLOR_BTN = 3;
-const uint8_t WARM_LEDS = 10;
-const uint8_t WHITE_LEDS = 11;
+const uint8_t BRIGHTNESS_BTN_PIN = 2;
+const uint8_t COLOR_BTN_PIN = 3;
+const uint8_t WARM_LEDS_PIN = 5;
+const uint8_t WHITE_LEDS_PIN = 6;
 
-Button brightnessBtn(BRIGHTNESS_BTN);
-Button colorBtn(COLOR_BTN);
+const uint8_t COLOR_MODE_0_FULL_WARM = 0b0010;
+const uint8_t COLOR_MODE_1_FULL_WARM_HALF_WHITE = 0b0110;
+const uint8_t COLOR_MODE_2_FULL_WARM_FULL_WHITE = 0b1010;
+const uint8_t COLOR_MODE_3_HALF_WARM_FULL_WHITE = 0b1001;
+const uint8_t COLOR_MODE_4_FULL_WHITE = 0b1000;
+const uint8_t MAX_COLOR_MODE = 5;
+const uint8_t COLOR_MODES[MAX_COLOR_MODE] = {COLOR_MODE_0_FULL_WARM, COLOR_MODE_1_FULL_WARM_HALF_WHITE,
+                                             COLOR_MODE_2_FULL_WARM_FULL_WHITE, COLOR_MODE_3_HALF_WARM_FULL_WHITE,
+                                             COLOR_MODE_4_FULL_WHITE};
+
+Button brightnessBtn(BRIGHTNESS_BTN_PIN);
+Button colorBtn(COLOR_BTN_PIN);
 
 const uint16_t BRIGHTNESS_STEP = 255 / 5;
 const uint16_t BRIGHTNESS_MAX = 255;
 uint16_t ledBrightnessTarget = 0;
+
+uint8_t colorModeIndex = 2;
+float warmLedsMultiplier = 1;
+float whiteLedsMultiplier = 1;
 
 uint16_t warmLedsTarget = 0;
 uint16_t warmLedsCurr = 0;
@@ -27,10 +41,10 @@ void setup() {
   Serial.begin(9600);
   Serial.println("Nano lamp controller");
 
-  pinMode(WARM_LEDS, OUTPUT);
-  analogWrite(WARM_LEDS, 0);
-  pinMode(WHITE_LEDS, OUTPUT);
-  analogWrite(WHITE_LEDS, 0);
+  pinMode(WARM_LEDS_PIN, OUTPUT);
+  analogWrite(WARM_LEDS_PIN, 0);
+  pinMode(WHITE_LEDS_PIN, OUTPUT);
+  analogWrite(WHITE_LEDS_PIN, 0);
 
   brightnessBtn.begin();
   colorBtn.begin();
@@ -51,22 +65,49 @@ void loop() {
     Serial.println(ledBrightnessTarget);
   }
 
+  if (colorBtn.pressed()) {
+    if (colorModeIndex >= MAX_COLOR_MODE - 1) {
+      colorModeIndex = 0;
+    } else {
+      colorModeIndex++;
+    }
+
+    Serial.print("Change color mode to ");
+    Serial.println(colorModeIndex);
+  }
+
   updateLEDs();
   delay(10);
 }
 
 void updateLEDs() {
-  if (warmLedsCurr != warmLedsTarget) {
-    // Serial.print("Change warm LEDs to ");
-    warmLedsCurr += calculateChange(warmLedsCurr, warmLedsTarget);
-    // Serial.println(warmLedsCurr);
-    analogWrite(WARM_LEDS, pgm_read_byte(&gamma8[warmLedsCurr]));
+  if (COLOR_MODES[colorModeIndex] & 0b0010) {
+    warmLedsMultiplier = 1;
+  } else if (COLOR_MODES[colorModeIndex] & 0b0001) {
+    warmLedsMultiplier = 0.5;
+  } else {
+    warmLedsMultiplier = 0;
   }
-  if (whiteLedsCurr != whiteLedsTarget) {
+  if (COLOR_MODES[colorModeIndex] & 0b1000) {
+    whiteLedsMultiplier = 1;
+  } else if (COLOR_MODES[colorModeIndex] & 0b0100) {
+    whiteLedsMultiplier = 0.5;
+  } else {
+    whiteLedsMultiplier = 0;
+  }
+  const uint16_t realWarmLedsTarget = warmLedsTarget * warmLedsMultiplier;
+  if (warmLedsCurr != realWarmLedsTarget) {
+    // Serial.print("Change warm LEDs to ");
+    warmLedsCurr += calculateChange(warmLedsCurr, realWarmLedsTarget);
+    // Serial.println(warmLedsCurr);
+    analogWrite(WARM_LEDS_PIN, pgm_read_byte(&gamma8[warmLedsCurr]));
+  }
+  const uint16_t realWhiteLedsTarget = whiteLedsTarget * whiteLedsMultiplier;
+  if (whiteLedsCurr != realWhiteLedsTarget) {
     // Serial.print("Change white LEDs to ");
-    whiteLedsCurr += calculateChange(whiteLedsCurr, whiteLedsTarget);
+    whiteLedsCurr += calculateChange(whiteLedsCurr, realWhiteLedsTarget);
     // Serial.println(whiteLedsCurr);
-    analogWrite(WHITE_LEDS, pgm_read_byte(&gamma8[whiteLedsCurr]));
+    analogWrite(WHITE_LEDS_PIN, pgm_read_byte(&gamma8[whiteLedsCurr]));
   }
 }
 
@@ -98,4 +139,3 @@ const uint8_t PROGMEM gamma8[] = {
     126, 127, 129, 131, 133, 135, 137, 138, 140, 142, 144, 146, 148, 150, 152, 154, 156, 158, 160, 162, 164, 167,
     169, 171, 173, 175, 177, 180, 182, 184, 186, 189, 191, 193, 196, 198, 200, 203, 205, 208, 210, 213, 215, 218,
     220, 223, 225, 228, 231, 233, 236, 239, 241, 244, 247, 249, 252, 255};
-
