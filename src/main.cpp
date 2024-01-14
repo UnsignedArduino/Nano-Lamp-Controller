@@ -1,8 +1,9 @@
 #include <Arduino.h>
 #include <Button.h>
 
-const uint8_t BRIGHTNESS_BTN_PIN = 2;
+const uint8_t POWER_BTN_PIN = 2;
 const uint8_t COLOR_BTN_PIN = 3;
+const uint8_t BRIGHTNESS_BTN_PIN = 4;
 const uint8_t WARM_LEDS_PIN = 5;
 const uint8_t WHITE_LEDS_PIN = 6;
 
@@ -16,20 +17,22 @@ const uint8_t COLOR_MODES[MAX_COLOR_MODE] = {COLOR_MODE_0_FULL_WARM, COLOR_MODE_
                                              COLOR_MODE_2_FULL_WARM_FULL_WHITE, COLOR_MODE_3_HALF_WARM_FULL_WHITE,
                                              COLOR_MODE_4_FULL_WHITE};
 
-Button brightnessBtn(BRIGHTNESS_BTN_PIN);
+Button powerBtn(POWER_BTN_PIN);
 Button colorBtn(COLOR_BTN_PIN);
+Button brightnessBtn(BRIGHTNESS_BTN_PIN);
 
-const uint16_t BRIGHTNESS_STEP = 255 / 5;
-const uint16_t BRIGHTNESS_MAX = 255;
-uint16_t ledBrightnessTarget = 0;
+bool isOn = false;
 
 uint8_t colorModeIndex = 2;
 float warmLedsMultiplier = 1;
 float whiteLedsMultiplier = 1;
 
-uint16_t warmLedsTarget = 0;
+const uint8_t BRIGHTNESS_INDEX_STEPS = 4;
+uint16_t ledBrightnessIndexTarget = BRIGHTNESS_INDEX_STEPS;
+
+uint16_t warmLedsTarget = 255;
 uint16_t warmLedsCurr = 0;
-uint16_t whiteLedsTarget = 0;
+uint16_t whiteLedsTarget = 255;
 uint16_t whiteLedsCurr = 0;
 
 extern const uint8_t gamma8[];
@@ -46,26 +49,22 @@ void setup() {
   pinMode(WHITE_LEDS_PIN, OUTPUT);
   analogWrite(WHITE_LEDS_PIN, 0);
 
-  brightnessBtn.begin();
+  powerBtn.begin();
   colorBtn.begin();
+  brightnessBtn.begin();
 }
 
 void loop() {
-  if (brightnessBtn.pressed()) {
-    if (ledBrightnessTarget >= BRIGHTNESS_MAX) {
-      ledBrightnessTarget = 0;
+  if (powerBtn.pressed()) {
+    isOn = !isOn;
+    if (isOn) {
+      Serial.println("Turn on");
     } else {
-      ledBrightnessTarget += BRIGHTNESS_STEP;
+      Serial.println("Turn off");
     }
-
-    warmLedsTarget = ledBrightnessTarget;
-    whiteLedsTarget = ledBrightnessTarget;
-
-    Serial.print("Change brightness to ");
-    Serial.println(ledBrightnessTarget);
   }
 
-  if (colorBtn.pressed()) {
+  if (colorBtn.pressed() && isOn) {
     if (colorModeIndex >= MAX_COLOR_MODE - 1) {
       colorModeIndex = 0;
     } else {
@@ -74,6 +73,22 @@ void loop() {
 
     Serial.print("Change color mode to ");
     Serial.println(colorModeIndex);
+  }
+
+  if (brightnessBtn.pressed() && isOn) {
+    if (ledBrightnessIndexTarget >= BRIGHTNESS_INDEX_STEPS) {
+      ledBrightnessIndexTarget = 1;
+    } else {
+      ledBrightnessIndexTarget++;
+    }
+
+    const uint8_t realBrightness = (255 / (BRIGHTNESS_INDEX_STEPS + 1)) * (ledBrightnessIndexTarget + 1);
+
+    warmLedsTarget = realBrightness;
+    whiteLedsTarget = realBrightness;
+
+    Serial.print("Change brightness to ");
+    Serial.println(ledBrightnessIndexTarget);
   }
 
   updateLEDs();
@@ -95,6 +110,8 @@ void updateLEDs() {
   } else {
     whiteLedsMultiplier = 0;
   }
+  warmLedsMultiplier = isOn ? warmLedsMultiplier : 0;
+  whiteLedsMultiplier = isOn ? whiteLedsMultiplier : 0;
   const uint16_t realWarmLedsTarget = warmLedsTarget * warmLedsMultiplier;
   if (warmLedsCurr != realWarmLedsTarget) {
     // Serial.print("Change warm LEDs to ");
@@ -113,16 +130,7 @@ void updateLEDs() {
 
 int16_t calculateChange(uint16_t current, uint16_t target) {
   const int16_t diff = target - current;
-  const uint16_t absDiff = abs(diff);
-  int16_t changeBy;
-  if (absDiff > 100) {
-    changeBy = 10;
-  } else if (absDiff > 50) {
-    changeBy = 5;
-  } else if (absDiff > 10) {
-    changeBy = 1;
-  }
-  return diff > 0 ? changeBy : -changeBy;
+  return ceil(diff * 0.05);
 }
 
 // https://learn.adafruit.com/led-tricks-gamma-correction/the-quick-fix
